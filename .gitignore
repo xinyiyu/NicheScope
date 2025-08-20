@@ -4,6 +4,8 @@ __pycache__/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+notebooks_old/
+notebooks_private/
 
 # Environments
 .env
@@ -11,4 +13,10 @@ env/
 
 # Custom
 *.egg-info/
+data/
+results/
+src/test.ipynb
+src/utils_old.py
+README_private.md
+
 
