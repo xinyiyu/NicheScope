@@ -1,7 +1,7 @@
 # NicheScope
 NicheScope is a computational framework for identifying and characterizing cell niches from spatial transcriptomics data. It jointly models a target cell’s gene expression and its local multicellular neighborhood to uncover multicellular niches (MCNs) and their corresponding niche-regulated cell states (NRCSs). NicheScope is robust and scalable, enabling reproducible analysis of tissue organization and functional microenvironments across diverse biological contexts.
 
-![image](https://github.com/xinyiyu/IBSEP/blob/main/nichescope_demo.jpg)
+![image](https://github.com/xinyiyu/NicheScope/blob/main/nichescope_demo.jpg)
 
 ## Installation
 Git clone the repository and install the package:
