@@ -26,10 +26,6 @@ def setup_logger(name, level=logging.INFO):
     return logger
 
 
-logger = setup_logger("nichescope", level=logging.INFO)
-logger_sub = setup_logger("nichescope.sub", level=logging.WARNING)
-
-    
 def matrix_standard(X):
     X_std = np.std(X, axis=0)
     X_std[X_std==0] = 1
@@ -46,6 +42,7 @@ def compute_N(
     cell_id_key='cell_id',
     cell_type_key='cell_type',
     max_chunk_target=10000,
+    logger_sub_level=logging.WARNING,
     **kwargs
 ):
 
@@ -75,12 +72,17 @@ def compute_N(
     max_chunk_target : int, default=10000
         Compute matrix N by chunk if number of cells exceeding max_chunk_target.
 
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
+
     Returns
     -------
     N_target_df : pandas.DataFrame
         Neighborhood cell type composition dataframe.
     
     """
+
+    logger_sub = setup_logger("compute_N", level=logger_sub_level)
     
     ## num cell id
     loc = adata.obs[[cell_id_key, 'x', 'y', cell_type_key]]
@@ -132,6 +134,7 @@ def select_candidate_genes(
     cov_test_null=False, 
     standardize=False,
     cell_type_key='cell_type',
+    logger_sub_level=logging.WARNING,
     **kwargs
 ):
 
@@ -179,6 +182,9 @@ def select_candidate_genes(
     cell_type_key : str, default='cell_type'
         Cell type key in adata.obs.
 
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
+
     Returns
     -------
     cov_target : pandas.DataFrame
@@ -192,6 +198,8 @@ def select_candidate_genes(
     
     """
     
+    logger_sub = setup_logger("select_candidate_genes", level=logger_sub_level)
+
     if adata2 is not None:
         assert N_target_df2 is not None, 'N_target_df2 not provided for combined covariance test!'
         use_gene_names = list(set(adata.var.loc[adata.var.highly_variable_rank<n_hvg,].index.tolist()) & set(adata2.var.loc[adata2.var.highly_variable_rank<n_hvg,].index.tolist()))
@@ -284,6 +292,7 @@ def select_candidate_genes(
     return cov_target, cca_genes, cov_real_null
     
 
+## cca for one dataset
 def cca(
     adata,
     target_ct,
@@ -295,6 +304,7 @@ def cca(
     pz=0.5,
     sort_comp_by_corr=False,
     cell_type_key='cell_type',
+    logger_sub_level=logging.WARNING,
     **kwargs
 ):
 
@@ -343,9 +353,14 @@ def cca(
 
     ds : numpy.array
         Scaling factors of all the CCA components, used in adjusting the previous components.
+
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
     
     """
 
+    logger_sub = setup_logger("cca", level=logger_sub_level)
+    
     ## rpy2 
     r = ro.r
     importr('PMA')
@@ -375,7 +390,8 @@ def cca(
         u = u[:,comp_order]
         v = v[:,comp_order]
         cca_comp = len(comp_order)
-        ds = ds[comp_order]   
+        ds = ds[comp_order]  
+    logger_sub.debug(f"CCA cors: {np.round(cors,3)}")
 
     ## post proc
     udf = pd.DataFrame(u, index=cca_genes, columns=[f'comp{i}' for i in range(1,cca_comp+1)])
@@ -383,6 +399,273 @@ def cca(
 
     return udf, vdf, cors, ds
 
+
+## cca for finding shared MCNs across two datasets
+def cca_share(
+    adata1,
+    adata2,
+    target_ct,
+    N_target_df1,
+    N_target_df2,
+    cca_genes,
+    *,
+    cca_comp=8,
+    px=0.6,
+    pz=0.5,
+    sort_comp_by_corr=False,
+    cell_type_key='cell_type',
+    logger_sub_level=logging.WARNING,
+    **kwargs
+):
+
+    """
+    Sparse nonnegative canonical correlation analysis.
+
+    Parameters
+    ----------
+    adata1 : anndata.AnnData
+        ST AnnData object of dataset 1.
+
+    adata2 : anndata.AnnData
+        ST AnnData object of dataset 2.
+        
+    target_ct : str
+        Name of target cell type.
+
+    N_target_df : pandas.DataFrame
+        Neighborhood cell type composition dataframe of dataset 1.
+
+    N_target_df2 : pandas.DataFrame
+        Neighborhood cell type composition dataframe of dataset 2.
+
+    cca_genes : list
+        Candidate genes significant in covariance tests.
+
+    cca_comp : int, default=8
+        Number of components in CCA.
+
+    px : int, default=0.6
+        Parameter in [0, 1] controlling sparsity of gene coefficients u. A smaller px leads to less nonzero values in gene coefficients.
+    
+    pz : int, default=0.5
+        Parameter in [0, 1] controlling sparsity of gene coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
+
+    sort_comp_by_corr : bool, default=False
+        Whether to sort CCA components by the descending order of CCA correlations.
+
+    cell_type_key : str, default='cell_type'
+        Cell type key in adata.obs.
+
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
+
+    Returns
+    -------
+    udf : pandas.DataFrame
+        Gene coefficients of all the CCA components.
+
+    vdf : pandas.DataFrame
+        Cell type coefficients of all the CCA components.
+
+    cors : numpy.array
+        Correlations between Xu and Nv of all the CCA components.
+
+    ds : numpy.array
+        Scaling factors of all the CCA components, used in adjusting the previous components.
+    
+    """
+
+    logger_sub = setup_logger("cca_share", level=logging.DEBUG)
+
+    ## rpy2 
+    r = ro.r
+    importr('PMA')
+    CCA = r['CCA']
+    numpy2ri.activate()
+    pandas2ri.activate()
+    
+    ## input
+    cca_X1 = adata1[adata1.obs[cell_type_key]==target_ct, cca_genes].X.toarray()
+    cca_X2 = adata2[adata2.obs[cell_type_key]==target_ct, cca_genes].X.toarray()
+    cca_X1 = matrix_standard(cca_X1)
+    cca_X2 = matrix_standard(cca_X2)
+    cca_X = np.concatenate((cca_X1, cca_X2),axis=0)
+
+    cca_N1 = matrix_standard(N_target_df1.values)
+    cca_N2 = matrix_standard(N_target_df2.values)
+    cca_N = np.concatenate((cca_N1, cca_N2),axis=0)
+    keep_cell_idx = np.where(cca_N.sum(axis=1)!=0)[0]
+    
+    cca_X = cca_X[keep_cell_idx,:]
+    cca_N = cca_N[keep_cell_idx,:]
+    logger_sub.debug(f'cca_X: {cca_X.shape}; cca_N: {cca_N.shape}')
+
+    ## nonneg cca
+    pmd = CCA(cca_X, cca_N, K=cca_comp, penaltyx=px, penaltyz=pz, typex="standard", typez="standard", standardize=True, upos=True, vpos=True, trace=False)
+
+    u = pmd.rx2('u')
+    v = pmd.rx2('v')
+    cors = pmd.rx2('cors')
+    ds = pmd.rx2('d')
+    if sort_comp_by_corr:
+        comp_order = np.argsort(cors)[::-1]
+        comp_order = comp_order[cors[comp_order]>0]
+        cors = cors[comp_order]
+        u = u[:,comp_order]
+        v = v[:,comp_order]
+        cca_comp = len(comp_order)
+        ds = ds[comp_order]   
+    logger_sub.debug(f"Total CCA ds: {np.round(ds,3)}")
+    logger_sub.debug(f"Total CCA cors: {np.round(cors,3)}")
+    cors1 = []
+    cca1l = cca_X1@u
+    cca1r = cca_N1@v
+    for i in range(len(cors)):
+        cors1.append(np.corrcoef(cca1l[:,i],cca1r[:,i])[0,1])
+    logger_sub.debug(f"Dataset 1 CCA cors: {np.round(cors1,3)}")
+    cors2 = []
+    cca2l = cca_X2@u
+    cca2r = cca_N2@v
+    for i in range(len(cors)):
+        cors2.append(np.corrcoef(cca2l[:,i],cca2r[:,i])[0,1])
+    logger_sub.debug(f"Dataset 2 CCA cors: {np.round(cors2,3)}\n")
+
+    ## post proc
+    udf = pd.DataFrame(u, index=cca_genes, columns=[f'comp{i}' for i in range(1,cca_comp+1)])
+    vdf = pd.DataFrame(v, index=N_target_df1.columns, columns=[f'comp{i}' for i in range(1,cca_comp+1)])
+
+    return udf, vdf, cors, ds
+
+
+## cca for finding specific MCNs of one dataset
+def cca_specific(
+    adata,
+    target_ct,
+    N_target_df,
+    adjust_u,
+    adjust_v,
+    adjust_d,
+    *,
+    cca_comp=8,
+    px=0.6,
+    pz=0.5,
+    sort_comp_by_corr=False,
+    cell_type_key='cell_type',
+    logger_sub_level=logging.WARNING,
+    **kwargs
+):
+
+    """
+    Sparse nonnegative canonical correlation analysis.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Input ST AnnData object.
+
+    target_ct : str
+        Name of target cell type.
+
+    N_target_df : pandas.DataFrame
+        Neighborhood cell type composition dataframe.
+
+    adjust_u : numpy.array
+        Gene coefficient matrix U to be adjusted. U is obtained from CCA in shared niche detection.
+
+    adjust_v : numpy.array
+        Cell type coefficient matrix V to be adjusted. V is obtained from CCA in shared niche detectionl.
+
+    adjust_d : numpy.array
+        Constant vector d to be adjusted. l-th element of d is computed by (Xu)^T(Nv), u=U[:,l], v=V[:,l], l=1,...,L, L is the number of CCA components to be adjusted.
+
+    cca_comp : int, default=8
+        Number of components in CCA.
+
+    px : int, default=0.6
+        Parameter in [0, 1] controlling sparsity of gene coefficients u. A smaller px leads to less nonzero values in gene coefficients.
+    
+    pz : int, default=0.5
+        Parameter in [0, 1] controlling sparsity of gene coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
+
+    sort_comp_by_corr : bool, default=False
+        Whether to sort CCA components by the descending order of CCA correlations.
+
+    cell_type_key : str, default='cell_type'
+        Cell type key in adata.obs.
+
+    Returns
+    -------
+    udf : pandas.DataFrame
+        Gene coefficients of all the CCA components.
+
+    vdf : pandas.DataFrame
+        Cell type coefficients of all the CCA components.
+
+    cors : numpy.array
+        Correlations between Xu and Nv of all the CCA components.
+
+    ds : numpy.array
+        Scaling factors of all the CCA components, used in adjusting the previous components.
+
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
+    
+    """
+
+    logger_sub = setup_logger("cca_specific", level=logger_sub_level)
+    
+    ## rpy2 
+    r = ro.r
+    importr('PMA')
+    CCA = r['CCA']
+    numpy2ri.activate()
+    pandas2ri.activate()
+    
+    ## input
+    cca_genes = adjust_u.index.tolist()
+    cca_X = adata[adata.obs[cell_type_key]==target_ct, cca_genes].X.toarray()
+    cca_N = N_target_df.values
+    keep_cell_idx = np.where(cca_N.sum(axis=1)!=0)[0]
+    cca_X = cca_X[keep_cell_idx,:]
+    cca_N = cca_N[keep_cell_idx,:]
+    cca_X = matrix_standard(cca_X)
+    cca_N = matrix_standard(cca_N)
+
+    adjust_u = adjust_u.T.values
+    new_v = pd.DataFrame(np.zeros((cca_N.shape[1], adjust_v.shape[1])), index=N_target_df.columns, columns=adjust_v.columns)
+    new_v.loc[adjust_v.index] = adjust_v
+    adjust_v = new_v.T.values
+    adjust_x = adjust_u * np.sqrt(adjust_d[:,None]) 
+    adjust_n = -adjust_v * np.sqrt(adjust_d[:,None])
+
+    cca_X = np.concatenate((cca_X, adjust_x),axis=0)
+    cca_N = np.concatenate((cca_N, adjust_n),axis=0)
+    logger_sub.debug(f'cca_X: {cca_X.shape}; cca_N: {cca_N.shape}')
+
+    ## nonneg cca
+    pmd = CCA(cca_X, cca_N, K=cca_comp, penaltyx=px, penaltyz=pz, typex="standard", typez="standard", standardize=False, upos=True, vpos=True, trace=False)
+
+    u = pmd.rx2('u')
+    v = pmd.rx2('v')
+    cors = pmd.rx2('cors')
+    ds = pmd.rx2('d')
+    if sort_comp_by_corr:
+        comp_order = np.argsort(cors)[::-1]
+        comp_order = comp_order[cors[comp_order]>0]
+        cors = cors[comp_order]
+        u = u[:,comp_order]
+        v = v[:,comp_order]
+        cca_comp = len(comp_order)
+        ds = ds[comp_order]   
+    logger_sub.debug(f"Specific CCA cors: {np.round(cors,3)}")
+
+    ## post proc
+    udf = pd.DataFrame(u, index=cca_genes, columns=[f'comp{i}' for i in range(1,cca_comp+1)])
+    vdf = pd.DataFrame(v, index=N_target_df.columns, columns=[f'comp{i}' for i in range(1,cca_comp+1)])
+
+    return udf, vdf, cors, ds
+
+    
 ### niche score
 def compute_niche_score(
     adata, 
@@ -394,6 +677,7 @@ def compute_niche_score(
     cell_id_key='cell_id', 
     cell_type_key='cell_type', 
     sub_cell_type_key='sub_cell_type',
+    logger_sub_level=logging.WARNING,
     **kwargs
 ):
     
@@ -426,6 +710,9 @@ def compute_niche_score(
     sub_cell_type_key : str, default='sub_cell_type'
         Sub cell type key in adata.obs (optional).
 
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
+
     Returns
     -------
     score_df : pandas.DataFrame
@@ -433,6 +720,8 @@ def compute_niche_score(
     
     """
 
+    logger_sub = setup_logger("select_candidate_genes", level=logger_sub_level)
+    
     genes = udf.index.tolist()
     U = udf.values
     V = vdf.values
@@ -468,7 +757,7 @@ def compute_niche_score(
     return score_df
     
 
-### neighborhood composition, cov test and cca
+### nichescope pipeline: single condition
 def nichescope(
     adata, 
     target_ct,
@@ -488,6 +777,8 @@ def nichescope(
     cell_id_key='cell_id',
     cell_type_key='cell_type',
     sub_cell_type_key='sub_cell_type',
+    logger_level=logging.INFO,
+    logger_sub_level=logging.WARNING,
     **kwargs
 ):
 
@@ -547,12 +838,20 @@ def nichescope(
     sub_cell_type_key : str, default='sub_cell_type'
         Sub cell type key in adata.obs (optional).
 
+    logger_level : int, default=logging.INFO
+        Logger level of main function.
+
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
+
     Returns
     -------
     meta : dict
         Dictionary containing parameters and niche detection results.
     
     """
+
+    logger = setup_logger("nichescope", level=logger_level)
 
     ## parameters
     params = {
@@ -569,7 +868,8 @@ def nichescope(
         'sort_comp_by_corr': sort_comp_by_corr,
         'cell_id_key': cell_id_key,
         'cell_type_key': cell_type_key,
-        'sub_cell_type_key': sub_cell_type_key
+        'sub_cell_type_key': sub_cell_type_key,
+        'logger_sub_level': logger_sub_level
     }
     kwargs = params.copy()
     kwargs['filter_genes'] = filter_genes
@@ -618,4 +918,321 @@ def nichescope(
 
     return meta
 
+
+### nichescope pipeline: shared niche under multiple conditions
+def nichescope_share(
+    adata1, 
+    adata2,
+    target_ct,
+    *,
+    sigma=20, 
+    cutoff=0.05, 
+    n_hvg=3000, 
+    filter_genes=None,
+    max_cand_genes=500, 
+    cov_thres=0.05, 
+    cov_test_null=True,
+    use_cov_test_genes=True,
+    cca_comp=8, 
+    px=0.6, 
+    pz=0.5,
+    sort_comp_by_corr=False,
+    cell_id_key='cell_id',
+    cell_type_key='cell_type',
+    sub_cell_type_key='sub_cell_type',
+    logger_level=logging.INFO,
+    logger_sub_level=logging.WARNING,
+    **kwargs
+):
+
+    """
+    Run NicheScope for cell niche detection under single condition.
+
+    Parameters
+    ----------
+    adata1 : anndata.AnnData
+        Input ST AnnData object of dataset 1.
+
+    adata2 : anndata.AnnData
+        Input ST AnnData object of dataset 2.
+
+    target_ct : str
+        Name of target cell type.
+
+    sigma : int or float, default=20
+        Gaussian kernel bandwidth.
+
+    cutoff : float, default=0.05
+        Setting kernel value lower than cutoff to 0.
+
+    n_hvg : int, default=3000
+        Use top n_hvg highly variable genes.
+
+    filter_genes : list, default=None
+        Restrict the analysis to genes in this list.
+
+    cov_thres : float, default=0.05
+        P-value threshold for selecting candidate genes.
+        
+    max_cand_genes : int, default=500
+        Maximum number of candidate genes used for CCA.
+
+    cov_test_null : bool, default=False
+        Whether to perform covariance tests on permuted data to generate null distribution of p-values.
+
+    use_cov_test_genes : bool, default=True
+        Whether to use candidate genes selected by covariance tests.
+
+    cca_comp : int, default=8
+        Number of components in CCA.
+
+    px : int, default=0.6
+        Parameter in [0, 1] controlling sparsity of gene coefficients u. A smaller px leads to less nonzero values in gene coefficients.
+
+    pz : int, default=0.5
+        Parameter in [0, 1] controlling sparsity of gene coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
+
+    sort_comp_by_corr : bool, default=False
+        Whether to sort CCA components by the descending order of CCA correlations.
+
+    cell_id_key : str, default='cell_id'
+        Cell ID key in adata.obs.
+
+    cell_type_key : str, default='cell_type'
+        Cell type key in adata.obs.
+
+    sub_cell_type_key : str, default='sub_cell_type'
+        Sub cell type key in adata.obs (optional).
+
+    logger_level : int, default=logging.INFO
+        Logger level of main function.
+
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
+
+    Returns
+    -------
+    meta : dict
+        Dictionary containing parameters and niche detection results.
     
+    """
+
+    logger = setup_logger("nichescope_share", level=logger_level)
+
+    ## parameters
+    params = {
+        'sigma': sigma,
+        'cutoff': cutoff,
+        'n_hvg': n_hvg,
+        'max_cand_genes': max_cand_genes,
+        'cov_test_null': cov_test_null,
+        'cov_thres': cov_thres,
+        'use_cov_test_genes': use_cov_test_genes,
+        'cca_comp': cca_comp,
+        'px': px,
+        'pz': pz,
+        'sort_comp_by_corr': sort_comp_by_corr,
+        'cell_id_key': cell_id_key,
+        'cell_type_key': cell_type_key,
+        'sub_cell_type_key': sub_cell_type_key,
+        'logger_sub_level': logger_sub_level,
+    }
+    kwargs = params.copy()
+    kwargs['filter_genes'] = filter_genes
+    
+    ## summarize dataset
+    nobs1, ngene1 = adata1.shape
+    nobs2, ngene2 = adata2.shape
+    cts1 = adata1.obs[cell_type_key].cat.categories.tolist()
+    cts2 = adata2.obs[cell_type_key].cat.categories.tolist()
+    cts_common = sorted(list(set(cts1) & set(cts2)))
+    cts_all = sorted(list(set(cts1) | set(cts2)))
+    logger.info(f'Dataset 1 summary: {nobs1} cells, {ngene1} genes.')
+    logger.info(f'Dataset 2 summary: {nobs2} cells, {ngene2} genes.')
+    logger.info(f'{len(cts_all)} cell types: {cts_all}.\n')
+
+    t0 = time.time()
+    ### preliminary
+    N_target_df1_ = compute_N(adata1, target_ct, **kwargs)
+    logger.info(f'Computed neighborhood composition matrix N1 of shape {N_target_df1_.shape} for Dataset 1.')
+    N_target_df2_ = compute_N(adata2, target_ct, **kwargs)
+    logger.info(f'Computed neighborhood composition matrix N2 of shape {N_target_df2_.shape} for Dataset 2.')
+    N_target_combine = pd.concat((N_target_df1_, N_target_df2_)).fillna(0)
+    N_target_df1 = N_target_combine.iloc[:N_target_df1_.shape[0]].copy()
+    N_target_df2 = N_target_combine.iloc[N_target_df1_.shape[0]:].copy()
+    logger.info(f'Combined neighborhood composition matrix N of shape {N_target_combine.shape}.')
+
+    ### gene selection
+    cov_target, cca_genes, cov_real_null = select_candidate_genes(adata1, target_ct, N_target_df1, adata2=adata2, N_target_df2=N_target_df2, standardize=True, **kwargs)
+    if len(cca_genes) == 0:
+        logger.error(f'No candidate genes provided for CCA! NicheScope stopped.')
+        return
+    
+    ### CCA
+    N_target_combine = pd.concat((N_target_df1_, N_target_df2_)).fillna(0)[cts_common]
+    N_target_df1 = N_target_combine.iloc[:N_target_df1_.shape[0]].copy()
+    N_target_df2 = N_target_combine.iloc[N_target_df1_.shape[0]:].copy()
+    udf, vdf, cors, ds = cca_share(adata1, adata2, target_ct, N_target_df1, N_target_df2, cca_genes, **kwargs)
+    logger.info(f'Nonneg CCA cors: {np.round(cors,3)}\n')
+    
+    ### compute niche score
+    score_df1 = compute_niche_score(adata1, target_ct, N_target_df1, udf, vdf, **kwargs)
+    score_df2 = compute_niche_score(adata2, target_ct, N_target_df2, udf, vdf, **kwargs)
+
+    t1 = time.time()
+    logger.info(f'NicheScope for shared {target_ct} MCN identification: Finished in {t1 - t0:.1f}s.')
+
+    ## return
+    meta = {
+        'target_ct': target_ct,
+        'params': params,
+        'N_target_df1': N_target_df1_,
+        'N_target_df2': N_target_df2_,
+        'cov_target': cov_target,
+        'cov_real_null': cov_real_null,
+        'cca_genes': cca_genes,
+        'udf': udf,
+        'vdf': vdf,
+        'cors': cors,
+        'ds': ds,
+        'score_df1': score_df1,
+        'score_df2': score_df2
+    }
+
+    return meta 
+
+
+### nichescope pipeline: specific niches for a condition
+def nichescope_specific(
+    adata, 
+    target_ct,
+    adjust_u,
+    adjust_v,
+    adjust_d,
+    *,
+    sigma=20, 
+    cutoff=0.05, 
+    cca_comp=8, 
+    px=0.6, 
+    pz=0.5,
+    sort_comp_by_corr=False,
+    cell_id_key='cell_id',
+    cell_type_key='cell_type',
+    sub_cell_type_key='sub_cell_type',
+    logger_level=logging.INFO,
+    logger_sub_level=logging.WARNING,
+    **kwargs
+):
+
+    """
+    Run NicheScope for cell niche detection under single condition.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Input ST AnnData object.
+
+    target_ct : str
+        Name of target cell type.
+
+    adjust_u : numpy.array
+        Gene coefficient matrix U to be adjusted. U is obtained from CCA in shared niche detection.
+
+    adjust_v : numpy.array
+        Cell type coefficient matrix V to be adjusted. V is obtained from CCA in shared niche detectionl.
+
+    adjust_d : numpy.array
+        Constant vector d to be adjusted. l-th element of d is computed by (Xu)^T(Nv), u=U[:,l], v=V[:,l], l=1,...,L, L is the number of CCA components to be adjusted.
+
+    sigma : int or float, default=20
+        Gaussian kernel bandwidth.
+
+    cutoff : float, default=0.05
+        Setting kernel value lower than cutoff to 0.
+
+    cca_comp : int, default=8
+        Number of components in CCA.
+
+    px : int, default=0.6
+        Parameter in [0, 1] controlling sparsity of gene coefficients u. A smaller px leads to less nonzero values in gene coefficients.
+
+    pz : int, default=0.5
+        Parameter in [0, 1] controlling sparsity of gene coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
+
+    sort_comp_by_corr : bool, default=False
+        Whether to sort CCA components by the descending order of CCA correlations.
+
+    cell_id_key : str, default='cell_id'
+        Cell ID key in adata.obs.
+
+    cell_type_key : str, default='cell_type'
+        Cell type key in adata.obs.
+
+    sub_cell_type_key : str, default='sub_cell_type'
+        Sub cell type key in adata.obs (optional).
+
+    logger_level : int, default=logging.INFO
+        Logger level of main function.
+
+    logger_sub_level : int, default=logging.WARNING
+        Logger level of sub function.
+
+    Returns
+    -------
+    meta : dict
+        Dictionary containing parameters and niche detection results.
+    
+    """
+
+    logger = setup_logger("nichescope", level=logger_level)
+
+    ## parameters
+    params = {
+        'sigma': sigma,
+        'cutoff': cutoff,
+        'cca_comp': cca_comp,
+        'px': px,
+        'pz': pz,
+        'sort_comp_by_corr': sort_comp_by_corr,
+        'cell_id_key': cell_id_key,
+        'cell_type_key': cell_type_key,
+        'sub_cell_type_key': sub_cell_type_key,
+        'logger_sub_level': logger_sub_level
+    }
+    kwargs = params.copy()
+    
+    ## summarize dataset
+    nobs, ngene = adata.shape
+    cts = adata.obs[cell_type_key].cat.categories.tolist()
+    logger.info(f'Dataset summary: {nobs} cells, {ngene} genes.')
+    logger.info(f'{len(cts)} cell types: {cts}.\n')
+
+    t0 = time.time()
+    ### preliminary
+    N_target_df = compute_N(adata, target_ct, **kwargs)
+    logger.info(f'Computed neighborhood composition matrix N of shape {N_target_df.shape}.')
+    
+    ### CCA
+    udf, vdf, cors, ds = cca_specific(adata, target_ct, N_target_df, adjust_u, adjust_v, adjust_d, **kwargs)
+    logger.info(f'Nonneg CCA cors: {np.round(cors,3)}\n')
+    
+    ### compute niche score
+    score_df = compute_niche_score(adata, target_ct, N_target_df, udf, vdf, **kwargs)
+
+    t1 = time.time()
+    logger.info(f'NicheScope on {target_ct}: Finished in {t1 - t0:.1f}s.')
+
+    ## return
+    meta = {
+        'target_ct': target_ct,
+        'params': params,
+        'N_target_df': N_target_df,
+        'udf': udf,
+        'vdf': vdf,
+        'cors': cors,
+        'ds': ds,
+        'score_df': score_df
+    }
+
+    return meta
+

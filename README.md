@@ -17,6 +17,7 @@ We provide source codes for reproducing the NicheScope analysis in the main text
 * [T cell MCN in LN (Xenium)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/Xenium_LN_T.ipynb)
 * [Tumor cell MCN in lung cancer (Xenium)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/Xenium_lung_tumor.ipynb)
 * [TLS and stromal cell MCN in lung cancer (Xenium)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/Xenium_lung_TLS_stromal.ipynb)
+* [Multi-condition niche discovery in primary and metastatic HNSCC (OpenST)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/OpenST_HNSCC.ipynb)
 
 ## Reference
 Xinyi Yu, Xiaomeng Wan, Leqi Tian, Yuheng Chen, Yuyao Liu, Tianwei Yu, Can Yang, Jiashun Xiao. NicheScope: Identifying Multicellular Niches and Niche-Regulated Cell States in Spatial Transcriptomics. doi: https://doi.org/10.1101/2025.08.21.671426.

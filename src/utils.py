@@ -6,6 +6,7 @@ import pathlib
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import style
+import matplotlib.lines as mlines
 import seaborn as sns
 import scanpy as sc
 import squidpy as sq
@@ -15,6 +16,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.interpolate import griddata, RBFInterpolator
 from sklearn import neighbors
 import gseapy
+import cmasher as cmr
 
 from assocplots.qqplot import *
 from operator import itemgetter
@@ -120,26 +122,21 @@ def qqplot(data, labels, n_quantiles=200, alpha=0.95, error_type='theoretical',
 
 
 ### niche cell type V radar plot
-def draw_v_radar(vdf, comps, v_thres=0.2, colors=None, alpha=0.6, width=0.2, offset=None, xticklabels=None, rlabel_angle=0, figsize=(5,5), dpi=300, xtick_fs=16, xlabel_pad=20, ylim=(0,1.05), yticks=[0.2,0.4,0.6,0.8,1.0], yticklabels=['0.2','0.4','0.6','0.8','1.0'], ytick_fs=12, leg_loc='upper right', leg_pos=(1.3, 1.1), leg_ncol=1, leg_title=None, leg_fs=16, leg_title_fs=16, leg_title_left=False, title=None, title_fs=20, title_y=1.15):
+def draw_v_radar(vdf, niches, niche1s=[], niche2s=[], v_thres=0.2, colors=None, alpha=0.6, width=0.2, offset=None, xticklabels=None, rlabel_angle=0, figsize=(5,5), dpi=300, xtick_fs=16, xlabel_pad=20, ylim=(0,1.05), yticks=[0.2,0.4,0.6,0.8,1.0], yticklabels=['0.2','0.4','0.6','0.8','1.0'], ytick_fs=12, leg_loc='center', leg_pos=(0.5,1.2), leg_ncol=1, leg_title=None, leg_pos_spec=(0.5,1.2), leg_ncol_spec=1, leg_title_spec=None, leg_fs=16, leg_title_fs=16, leg_title_left=False, title=None, title_fs=20, title_y=1.15):
 
     sns.set_theme(style='white')
+    all_niches = niches + niche1s + niche2s
     
     categories = vdf.index.tolist()
     if xticklabels is None:
         xticklabels = categories
-    niches = []
-    for x in comps:
-        if isinstance(x, int):
-            niches.append(f'comp{x}')
-        else:
-            niches.append(x)
     angles = np.linspace(0, 2*np.pi, len(categories), endpoint=False)
     
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi, subplot_kw=dict(projection='polar'))
     if offset is None:
         offset = 2*np.pi/72
     counter = {k:0  for k in categories}
-    for i, niche in enumerate(niches):
+    for i, niche in enumerate(all_niches):
         angles_ = np.zeros(len(categories)) 
         keys_ = vdf.loc[vdf[niche]>=v_thres].index.tolist()
         index_ = [categories.index(x) for x in keys_]
@@ -153,11 +150,16 @@ def draw_v_radar(vdf, comps, v_thres=0.2, colors=None, alpha=0.6, width=0.2, off
         if isinstance(colors[i], str):
             fc = mpl.colors.hex2color(colors[i])
         if len(fc) == 3:
-            fc = list(fc)+[alpha*0.5]
+            fc = list(fc)+[alpha]
         elif len(fc) == 4:
             fc = list(fc)
-            fc[-1] = alpha*0.5
-        ax.bar(angles_, values_, width=width, align='center', label=i+1, facecolor=fc, edgecolor=colors[i])
+            fc[-1] = alpha
+        if niche in niches:
+            ax.bar(angles_, values_, width=width, align='center', label=i+1, facecolor=fc, edgecolor=colors[i])
+        elif niche in niche1s:
+            ax.bar(angles_, values_, width=width, align='center', facecolor='none', edgecolor=colors[i], hatch='//')
+        elif niche in niche2s:
+            ax.bar(angles_, values_, width=width, align='center', facecolor='none', edgecolor=colors[i], hatch='\\\\')
 
     ax.set_ylim(ylim)
     ax.set_yticks(yticks)
@@ -175,6 +177,22 @@ def draw_v_radar(vdf, comps, v_thres=0.2, colors=None, alpha=0.6, width=0.2, off
         leg = ax.legend(handles, labels, bbox_to_anchor=leg_pos, loc=leg_loc, ncol=leg_ncol, borderpad=0, borderaxespad=0, columnspacing=0.8, framealpha=0, markerscale=1, fontsize=leg_fs, handletextpad=0.3, title=leg_title, title_fontsize=leg_title_fs, alignment='left')
         if leg_title_left:
             legend_title_left(leg)
+        ax.add_artist(leg)
+    if leg_pos_spec is not None:
+        legend_elements = []
+        for i, niche in enumerate(niche1s):
+            if len(niche1s) == 1:
+                label = 'Pri'
+            else:
+                label = f'Pri{i+1}'
+            legend_elements.append(mpatches.Patch(facecolor='none', edgecolor=colors[len(niches)+i], hatch='//', label=label))
+        for i, niche in enumerate(niche2s):
+            if len(niche2s) == 1:
+                label = 'Met'
+            else:
+                label = f'Met{i+1}'
+            legend_elements.append(mpatches.Patch(facecolor='none', edgecolor=colors[len(niches)+len(niche1s)+i], hatch='//', label=label))
+        leg = ax.legend(handles=legend_elements, bbox_to_anchor=leg_pos_spec, loc=leg_loc, ncol=leg_ncol_spec, borderpad=0, borderaxespad=0, columnspacing=0.8, framealpha=0, markerscale=1, fontsize=leg_fs, handletextpad=0.3, title=leg_title_spec, title_fontsize=leg_title_fs, alignment='left')
 
     plt.suptitle(title, y=title_y, fontsize=title_fs)
     plt.show()
@@ -337,13 +355,13 @@ def sub_ct_enrich(comp, score_df, subcts, quantiles, q_order):
 
 
 ### gene expression spatial
-def draw_gene_spatial(crop, gene, ct=None, title=None, cmap=None, vmax=None, expr_quant=1, ms=4, figsize=(15,9), dpi=300):
+def draw_gene_spatial(adata, gene, ct=None, title=None, cmap=None, vmax=None, expr_quant=1, ms=4, figsize=(15,9), dpi=300):
 
-    lims = [crop.obs.x.min(), crop.obs.x.max(), crop.obs.y.min(), crop.obs.y.max()]
-    values = sc.get.obs_df(crop, keys=gene)
-    df = pd.DataFrame({'x': crop.obs['x'].copy(), 
-                       'y': crop.obs['y'].copy(), 
-                       'cell_type': crop.obs['cell_type'].copy(),
+    lims = [adata.obs.x.min(), adata.obs.x.max(), adata.obs.y.min(), adata.obs.y.max()]
+    values = sc.get.obs_df(adata, keys=gene)
+    df = pd.DataFrame({'x': adata.obs['x'].copy(), 
+                       'y': adata.obs['y'].copy(), 
+                       'cell_type': adata.obs['cell_type'].copy(),
                        'value': values.copy()})
     df = df.sort_values('value', ascending=True)
     if ct is not None:
@@ -389,3 +407,368 @@ def draw_gene_spatial(crop, gene, ct=None, title=None, cmap=None, vmax=None, exp
         ax.spines[s].set_visible(False)
     plt.show()
 
+
+## get cell ids within one niche
+def get_niche_cell_ids(meta, meta_key, adata, comp_col, niche_quantile=0.5, sigma=40, cutoff=0.05):
+    
+    index_df = meta[meta_key].copy()[['cell_id', 'x', 'y', comp_col]]
+    tmp = meta[meta_key][comp_col]
+    tmp = tmp[tmp > 0]
+    thres = np.quantile(tmp, niche_quantile)
+    index_df = index_df.loc[index_df[comp_col] > thres]
+    print(f'Keep {len(index_df)} / {len(tmp)} target cells.')
+    all_df = adata.obs.copy()[['cell_id', 'x', 'y', 'cell_type']]
+    K_index = cdist(index_df[['x', 'y']].values, all_df[['x', 'y']].values)
+    K_index = np.exp(-K_index**2/sigma**2)
+    K_index[K_index < cutoff] = 0
+    keep_niche_cell_ids = np.where(K_index.sum(0)>0)[0]
+    keep_niche_cell_ids = all_df.cell_id.values[keep_niche_cell_ids]
+    
+    return keep_niche_cell_ids
+
+
+## get cell ids in tumors' neighborhood
+def get_tumor_neighbor_cell_ids(adata, target_ct = 'Tumor', max_chunk_target=10000, sigma = 40, cutoff = 0.05):
+    
+    loc_target = adata.obs.loc[adata.obs.cell_type==target_ct, ['x', 'y']].values
+    loc_all = adata.obs[['x','y']].values
+    print(f'{len(loc_all)} cells, {len(loc_target)} {target_ct}.')
+    if loc_target.shape[0]>max_chunk_target:
+        n_chunk = np.ceil(loc_target.shape[0]/max_chunk_target).astype(int)
+        loc_target_chunks = np.array_split(loc_target, n_chunk, axis=0)
+        K_target_chunks = []
+        for i, loc_target_chunk in enumerate(loc_target_chunks):
+            K_target_chunk = cdist(loc_target_chunk, loc_all)
+            K_target_chunk = np.exp(-K_target_chunk**2/sigma**2)
+            K_target_chunk[K_target_chunk < cutoff] = 0
+            K_target_chunks.append(K_target_chunk)
+        K_target = np.vstack(K_target_chunks)
+    else:
+        K_target = cdist(loc_target, loc_all)
+        K_target = np.exp(-K_target**2/sigma**2)
+        K_target[K_target < cutoff] = 0
+    print(f'K_target: {K_target.shape}.')
+    keep_niche_cell_ids = np.where(K_target.sum(0)>0)[0]
+    keep_niche_cell_ids = adata.obs.cell_id.values[keep_niche_cell_ids]
+    print(f'{len(keep_niche_cell_ids)} cells in the neighborhood of {target_ct}.\n')
+    return keep_niche_cell_ids
+
+
+## draw cells in one niche
+def draw_niche_cells(adata, keep_niche_cell_ids, cmap_ct_dict, ct_name_map,
+                     ms_bg = 4, color_bg = '#F0F0F0', lw_bg = 0, 
+                     ms = 6, ecolor = '#C0C0C0', lw = 0.4,
+                     title=None, title_fs=30, figsize=(7,10), dpi=300):
+    
+    fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
+    # background
+    bg_df = adata.obs.loc[~adata.obs.cell_id.isin(keep_niche_cell_ids)]
+    ax.scatter(bg_df['x'], bg_df['y'], ms_bg, facecolors=color_bg, edgecolor=color_bg, lw=lw_bg)
+    # cells in niche
+    niche_df = adata.obs.loc[adata.obs.cell_id.isin(keep_niche_cell_ids)]
+    cts = niche_df.cell_type.value_counts().index.tolist()
+    for i, ct in enumerate(cts):
+        color = cmap_ct_dict[ct]
+        df = niche_df.loc[niche_df.cell_type==ct]
+        ax.scatter(df['x'], df['y'], ms_bg, facecolors=color, edgecolor=color, lw=0, label=ct_name_map[ct])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(title, fontsize=title_fs, pad=10)
+    for s in ['top', 'bottom', 'right', 'left']:
+        ax.spines[s].set_visible(False)
+    # leg = ax.legend(loc='upper center', bbox_to_anchor=(0.5,0), ncol=5, fontsize=12, markerscale=4)
+    handles, labels = ax.get_legend_handles_labels()
+    order = np.argsort(labels)
+    handles = [handles[i] for i in order]
+    labels = [labels[i] for i in order]
+    # leg = ax.legend(handles, labels,
+    #                 loc='upper center', bbox_to_anchor=(0.5,0), ncol=5, fontsize=12, markerscale=4)
+    leg = ax.legend(handles, labels,
+                    loc='upper left', bbox_to_anchor=(1,1), ncol=1, fontsize=20, markerscale=4)
+
+    ax.margins(0,0)
+    plt.show()
+
+
+## heatmap for one source-target cell type pair in primary/met, ordered by magnitude rank
+def lr_heatmap_prim_met(lr_prim_met, source, target, filter_thres1s, filter_thres2s, n_top_orders, 
+                        source_name=None, target_name=None,
+                        cmap_lr=None, leg_bbox=None, mx=None, my=None, rot_x=90, sizes=(10,250), fs=10, w=3, dpi=300):
+
+    datasets = ['Pri', 'Met']
+    order_metric = 'magnitude_rank'
+    filter_metric1 = 'specificity_rank'
+    filter_metric2 = 'magnitude_rank'
+
+    ## use common lrs
+    common_lrs = []
+    for i, lr_res in enumerate(lr_prim_met):
+        lrs_ = lr_res.loc[(lr_res.source==source)&(lr_res.target==target)].lr.unique().tolist()
+        if len(common_lrs) == 0:
+            common_lrs = lrs_
+        else:
+            common_lrs = sorted(list(set(common_lrs) & set(lrs_)))
+    print(f'Use common {len(common_lrs)} LRs.')
+    for i in range(len(lr_prim_met)):
+        lr_prim_met[i] = lr_prim_met[i].loc[lr_prim_met[i].lr.isin(common_lrs)]
+    
+    terms = []
+    for i, (lr_res, dataset) in enumerate(zip(lr_prim_met, datasets)):
+
+        df0 = lr_res.loc[(lr_res.source==source)&(lr_res.target==target)&(lr_res[filter_metric1]<=filter_thres1s[i])&(lr_res[filter_metric2]<=filter_thres2s[i])]
+        df_ = df0.sort_values(order_metric).head(n_top_orders[i])[['lr', 'specificity_rank', 'magnitude_rank']]
+        df_['dataset'] = dataset
+        terms.extend(df_.lr.tolist())
+        print(dataset, len(df0), len(df_))
+    terms = list(set(terms))
+    dfs = []
+    for i, (lr_res, dataset) in enumerate(zip(lr_prim_met, datasets)):
+        df_ = lr_res.loc[(lr_res.source==source)&(lr_res.target==target), ['lr', 'specificity_rank', 'magnitude_rank']]
+        df_ = df_.set_index('lr').loc[terms][['specificity_rank', 'magnitude_rank']].reset_index()
+        df_['dataset'] = dataset
+        dfs.append(df_)
+    concat_df = pd.concat(dfs).reset_index(drop=True)
+    
+    spec_long = concat_df[['lr', 'dataset', 'specificity_rank']]
+    spec_wide = spec_long.pivot(index='lr', columns='dataset', values='specificity_rank').fillna(1)
+    spec_wide['min'] = spec_wide.min(1)
+    spec_wide = spec_wide.sort_values('min')
+    spec_wide = spec_wide.iloc[:,:len(datasets)]
+    mag_long = concat_df[['lr', 'dataset', 'magnitude_rank']]
+    mag_wide = mag_long.pivot(index='lr', columns='dataset', values='magnitude_rank').fillna(1)
+    mag_wide['min'] = mag_wide.min(1)
+    mag_wide = mag_wide.sort_values('min')
+    mag_wide = mag_wide.iloc[:,:len(datasets)]
+    print('Combine:', len(mag_wide))
+    mag_df = mag_wide.stack().reset_index(name='mag')
+    spec_df = spec_wide.stack().reset_index(name='spec')
+    mag_spec_df = mag_df.merge(spec_df, on=['lr', 'dataset'])
+    mag_spec_df['mag'] = -np.log10(mag_spec_df['mag'].values)
+    mag_spec_df['spec'] = -np.log10(mag_spec_df['spec'].values)
+    mag_spec_df['dataset'] = pd.Categorical(mag_spec_df['dataset'], categories=datasets)
+
+    ## heatmap
+    plt.rcParams.update({"figure.dpi": dpi})
+    sns.set_theme(style="whitegrid")
+    sns.set_context('paper',font_scale=1.)
+    if cmap_lr is None:
+        cmap_lr = cmr.get_sub_cmap(sns.cubehelix_palette(rot=0.1, dark=0.2, light=0.8, as_cmap=True, reverse=True), 0, 1)
+    
+    xticklabels = datasets
+    h = 0.3 * len(mag_wide)
+    if mx is None or my is None:
+        mx = 0.5/(len(datasets)-1)
+        my = 0.5/(len(mag_wide)-1) 
+    hue_min = mag_spec_df['spec'].min()
+    hue_max = mag_spec_df['spec'].max()
+    size_min = mag_spec_df['mag'].min()
+    size_max = mag_spec_df['mag'].max()
+    g = sns.relplot(
+        data=mag_spec_df, 
+        x="dataset", y="lr", hue="spec", size="mag",
+        palette=cmap_lr, hue_norm=(0,hue_max), size_norm=(0,size_max), edgecolor=".7",
+        height=h, aspect=1, sizes=sizes, legend=True, 
+    )
+    if source_name is None:
+        source_name = source
+    if target_name is None:
+        target_name = target
+    title = f'{source_name} $\\rightarrow$ {target_name}'
+    g.set(xlabel="", ylabel="", xticklabels=xticklabels, title=None, aspect='equal')
+    g._axes[0][0].set_title(title, fontsize=fs+2, color='darkblue')
+    g.set_xticklabels(size = fs, rotation=rot_x)
+    g.set_yticklabels(size = fs, style='italic')
+    g.despine(left=True, bottom=True)
+    g.ax.margins(x=mx, y=my)
+    if leg_bbox is not None:
+        for i in range(len(g._legend.texts)):
+            if g._legend.texts[i].get_text() == 'spec':
+                g._legend.texts[i].set_text('Spec.')
+            if g._legend.texts[i].get_text() == 'mag':
+                g._legend.texts[i].set_text('Mag.')
+        sns.move_legend(
+            g, "center", bbox_to_anchor=leg_bbox, fontsize=fs, ncols=1, frameon=False, alignment='left',
+        )
+    else:
+        g._legend.remove()
+    plt.show()
+
+    return g, concat_df, mag_spec_df
+
+
+## heatmap for one target cell type, ordered by magnitude rank
+def lr_heatmap_mag_target(lr_res, sources, target, filter_thres1s, filter_thres2s, n_top_orders, 
+                          source_names=None, target_name=None,
+                          add_lrs=None, cmap_lr=None, leg_bbox=None, mx=None, my=None, rot_x=90, dpi=300):
+    
+    order_metric = 'magnitude_rank'
+    filter_metric1 = 'specificity_rank'
+    filter_metric2 = 'magnitude_rank'
+
+    keep_cols = ['lr', 'source', 'target', 'specificity_rank', 'magnitude_rank']
+    dfs = []
+    for i, source in enumerate(sources):
+        df = lr_res.loc[(lr_res.source==source)&(lr_res.target==target)]
+        df0 = df.loc[(df[filter_metric1]<=filter_thres1s[i])&(df[filter_metric2]<=filter_thres2s[i])]
+        df_ = df0[keep_cols].sort_values(order_metric).head(n_top_orders[i])
+        lrs_ = df_.lr.values.tolist()
+        df_ = lr_res.loc[(lr_res.lr.isin(lrs_))&(lr_res.source.isin(sources))&(lr_res.target==target)][keep_cols]
+        print(source, len(lrs_), df_.shape)
+        if add_lrs is not None:
+            for lr in add_lrs:
+                if lr not in df_.lr.values:
+                    if lr in df.lr.values:
+                        df_ = pd.concat([df_, df.loc[df.lr==lr][keep_cols]])
+                    else:
+                        df_ = pd.concat([df_, pd.DataFrame([[lr, source, target, 1, 1]], columns=keep_cols)])
+        df_ = df_.sort_values(order_metric)
+        dfs.append(df_)
+    concat_df = pd.concat(dfs).drop_duplicates()
+    print(len(concat_df), concat_df.lr.unique().shape)
+    
+    spec_long = concat_df[['lr', 'source', 'specificity_rank']]
+    spec_wide = spec_long.pivot(index='lr', columns='source', values='specificity_rank').fillna(1)
+    spec_wide['min'] = spec_wide.min(1)
+    spec_wide = spec_wide.sort_values('min')
+    spec_wide = spec_wide.iloc[:,:len(sources)]
+    mag_long = concat_df[['lr', 'source', 'magnitude_rank']]
+    mag_wide = mag_long.pivot(index='lr', columns='source', values='magnitude_rank').fillna(1)
+    mag_wide['min'] = mag_wide.min(1)
+    mag_wide = mag_wide.sort_values('min')
+    mag_wide = mag_wide.iloc[:,:len(sources)]
+    print('Combine:', len(mag_wide))
+    mag_df = mag_wide.stack().reset_index(name='mag')
+    spec_df = spec_wide.stack().reset_index(name='spec')
+    mag_spec_df = mag_df.merge(spec_df, on=['lr', 'source'])
+    mag_spec_df['mag'] = -np.log10(mag_spec_df['mag'].values)
+    mag_spec_df['spec'] = -np.log10(mag_spec_df['spec'].values)
+    mag_spec_df['source'] = pd.Categorical(mag_spec_df['source'], categories=sources)
+
+    ## heatmap
+    plt.rcParams.update({"figure.dpi": dpi})
+    sns.set_theme(style="whitegrid")
+    sns.set_context('paper',font_scale=1.)
+    # cmap_lr = cmr.get_sub_cmap(mpl.cm.magma, 0.05,0.95)
+    if cmap_lr is None:
+        cmap_lr = cmr.get_sub_cmap(sns.cubehelix_palette(rot=0.1, dark=0.2, light=0.8, as_cmap=True, reverse=True), 0, 1)
+
+    if source_names is None:
+        source_names = sources
+    xticklabels = source_names
+    fs = 10
+    w = 3
+    h = 0.3 * len(mag_wide)
+    if mx is None or my is None:
+        mx = 0.5/(len(sources)-1) if len(sources) > 1 else 5 
+        my = 0.5/(len(mag_wide)-1) 
+    sizes = (10, 250)
+    hue_max = mag_spec_df['spec'].max()
+    size_max = mag_spec_df['mag'].max()
+    g = sns.relplot(
+        data=mag_spec_df, 
+        x="source", y="lr", hue="spec", size="mag",
+        palette=cmap_lr, hue_norm=(0,hue_max), size_norm=(0,size_max), edgecolor=".7",
+        height=h, aspect=1, sizes=sizes, legend=True, 
+    )
+    if target_name is None:
+        target_name = target
+    title = f'$\\rightarrow$ {target_name}'
+    g.set(xlabel="", ylabel="", xticklabels=xticklabels, title=None, aspect='equal')
+    g._axes[0][0].set_title(title, fontsize=fs+2, color='darkblue')
+    g.set_xticklabels(size = fs, rotation=rot_x)
+    g.set_yticklabels(size = fs, style='italic')
+    g.despine(left=True, bottom=True)
+    g.ax.margins(x=mx, y=my)
+    if leg_bbox is not None:
+        for i in range(len(g._legend.texts)):
+            if g._legend.texts[i].get_text() == 'spec':
+                g._legend.texts[i].set_text('Spec.')
+            if g._legend.texts[i].get_text() == 'mag':
+                g._legend.texts[i].set_text('Mag.')
+        sns.move_legend(
+            g, "center", bbox_to_anchor=leg_bbox, fontsize=fs, ncols=1, frameon=False, alignment='left',
+        )
+    else:
+        g._legend.remove()
+    
+    return concat_df
+    
+
+## draw lr pair gene expression spatial distribution
+def draw_lr_spatial(crop, keep_niche_cell_ids, cts, genes,
+                    ct_names = None, ligand_first = True, complex_fun=['min', 'max', 'mean', 'geom_mean'],
+                    cmap1 = cmr.get_sub_cmap(mpl.cm.PiYG, 0.5, 1),
+                    cmap2 = cmr.get_sub_cmap(mpl.cm.PiYG_r, 0.5, 1),
+                    ms_bg = 4, color_bg = '#F0F0F0', lw_bg = 0, ms = 6, ecolor = '#A0A0A0', lw = 0.1,
+                    leg_fs = 16, quantiles = [1, 1], figsize = (7,10), dpi = 300):
+
+    fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
+    cmaps = [cmap1, cmap2]
+    leg_cts = cts
+    leg_genes = genes
+    leg_cmaps = cmaps
+    if not ligand_first:
+        cts = cts[::-1]
+        genes = genes[::-1]
+        cmaps = cmaps[::-1]
+        quantiles = quantiles[::-1]
+    
+    # background
+    bg_df = crop[~crop.obs.cell_id.isin(keep_niche_cell_ids)].obs.copy()
+    ax.scatter(bg_df['x'], bg_df['y'], ms_bg, facecolors=color_bg, edgecolor=color_bg, lw=lw_bg)
+    # gene expression
+    raw = False
+    scores = []
+    # first draw zero expression points
+    for i, (ct, gene, cmap) in enumerate(zip(cts, genes, cmaps)):
+        crop_tmp = crop[(crop.obs.cell_type==ct)&(crop.obs.cell_id.isin(keep_niche_cell_ids)), gene]
+        if isinstance(gene, str):
+            z = crop_tmp.X.toarray().flatten()
+        else:
+            z = crop_tmp.X.toarray()
+            if complex_fun == 'min':
+                z = z.min(1)
+            elif complex_fun == 'max':
+                z = z.max(1)
+            elif complex_fun == 'mean':
+                z = z.mean(1)
+            elif complex_fun == 'geom_mean':
+                z = np.sqrt(z[:,0]*z[:,1])
+        if raw:
+            z = np.exp(z) - 1
+        tmp = pd.DataFrame({'x': crop_tmp.obs['x'].values,
+                            'y': crop_tmp.obs['y'].values,
+                            'z': z}).sort_values('z')
+        tmp_ = tmp.loc[tmp.z==0]
+        ecolor = mpl.colors.rgb2hex(cmap.colors[int(len(cmap.colors)*0.9)])
+        ax.scatter(tmp_['x'], tmp_['y'], ms, tmp_['z'], cmap=cmap, alpha=1, edgecolor=ecolor, lw=lw)
+        scores.append(tmp.loc[tmp.z>0])
+    for i in range(len(cts)):
+        sca_lims = {'vmin': 0, 'vmax': np.quantile(scores[i].z, quantiles[i])}
+        ecolor = mpl.colors.rgb2hex(cmaps[i].colors[int(len(cmaps[i].colors)*0.9)])
+        ax.scatter(scores[i]['x'], scores[i]['y'], ms, scores[i]['z'], cmap=cmaps[i], alpha=1, edgecolor=ecolor, lw=lw, **sca_lims)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for s in ['top', 'bottom', 'right', 'left']:
+        ax.spines[s].set_visible(False)
+    
+    legend_elements = []
+    for i, (ct_name, gene, cmap) in enumerate(zip(leg_cts, leg_genes, leg_cmaps)):
+        if ct_names is not None:
+            ct_name = ct_names[i]
+        label = f'{ct_name} ${gene}$'
+        if isinstance(gene, list):
+            label = f'{ct_name} ${gene[0]}$_${gene[1]}$'
+        c = mpl.colors.rgb2hex(cmap.colors[int(len(cmap.colors)*0.6)])
+        ecolor = mpl.colors.rgb2hex(cmap.colors[int(len(cmap.colors)*0.9)])
+        ele = mlines.Line2D([], [], color='w', marker='o', markersize=12, 
+                            markeredgecolor=ecolor, markerfacecolor=c, label=label)
+        legend_elements.append(ele)
+    leg = ax.legend(handles=legend_elements, bbox_to_anchor=(0.5,1.02), loc="center", 
+                    borderpad=0, borderaxespad=0, ncol=2,
+                    framealpha=0, markerscale=1, fontsize=leg_fs, handletextpad=0.3)
+    
+    ax.margins(0,0)
+    plt.show()
+
+    
