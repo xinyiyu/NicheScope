@@ -122,9 +122,19 @@ def qqplot(data, labels, n_quantiles=200, alpha=0.95, error_type='theoretical',
 
 
 ### niche cell type V radar plot
-def draw_v_radar(vdf, niches, niche1s=[], niche2s=[], v_thres=0.2, colors=None, alpha=0.6, width=0.2, offset=None, xticklabels=None, rlabel_angle=0, figsize=(5,5), dpi=300, xtick_fs=16, xlabel_pad=20, ylim=(0,1.05), yticks=[0.2,0.4,0.6,0.8,1.0], yticklabels=['0.2','0.4','0.6','0.8','1.0'], ytick_fs=12, leg_loc='center', leg_pos=(0.5,1.2), leg_ncol=1, leg_title=None, leg_pos_spec=(0.5,1.2), leg_ncol_spec=1, leg_title_spec=None, leg_fs=16, leg_title_fs=16, leg_title_left=False, title=None, title_fs=20, title_y=1.15):
+def draw_v_radar(vdf, niches, niche1s=[], niche2s=[], v_thres=0.2, colors=None, alpha=0.6, width=0.2, offset=None, xticklabels=None, rlabel_angle=0, figsize=(5,5), dpi=300, xtick_fs=16, xlabel_pad=20, ylim=(0,1.05), yticks=[0.2,0.4,0.6,0.8,1.0], yticklabels=['0.2','0.4','0.6','0.8','1.0'], ytick_fs=12, leg_loc='center', leg_pos=(0.5,1.2), leg_ncol=1, leg_title=None, leg_pos_spec=None, leg_ncol_spec=1, leg_title_spec=None, leg_fs=16, leg_title_fs=16, leg_title_left=False, title=None, title_fs=20, title_y=1.15):
 
     sns.set_theme(style='white')
+    
+    for i, x in enumerate(niches):
+        if 'comp' not in str(x):
+            niches[i] = f'comp{str(x)}'
+    for i, x in enumerate(niche1s):
+        if 'comp' not in str(x):
+            niche1s[i] = f'comp{str(x)}'
+    for i, x in enumerate(niche2s):
+        if 'comp' not in str(x):
+            niche2s[i] = f'comp{str(x)}'
     all_niches = niches + niche1s + niche2s
     
     categories = vdf.index.tolist()
@@ -177,7 +187,8 @@ def draw_v_radar(vdf, niches, niche1s=[], niche2s=[], v_thres=0.2, colors=None, 
         leg = ax.legend(handles, labels, bbox_to_anchor=leg_pos, loc=leg_loc, ncol=leg_ncol, borderpad=0, borderaxespad=0, columnspacing=0.8, framealpha=0, markerscale=1, fontsize=leg_fs, handletextpad=0.3, title=leg_title, title_fontsize=leg_title_fs, alignment='left')
         if leg_title_left:
             legend_title_left(leg)
-        ax.add_artist(leg)
+        if leg_pos_spec is not None:
+            ax.add_artist(leg)
     if leg_pos_spec is not None:
         legend_elements = []
         for i, niche in enumerate(niche1s):
@@ -201,8 +212,11 @@ def draw_v_radar(vdf, niches, niche1s=[], niche2s=[], v_thres=0.2, colors=None, 
 ### niche gene dotmap
 def draw_u_dotmap(udf, focus_comp, draw_comps, n_top_gene=10, add_genes=None, sizes=(5, 150), xticklabels=None, aspect_equal=False, fs=11, h=None, w=3, title=None, mx=0.2, my=0.03, leg_pos=(1.1,0.95), no_leg=False, dpi=200):
 
-    focus_comp = f'comp{focus_comp}'
-    draw_comps = [f'comp{k}' for k in draw_comps]
+    if 'comp' not in str(focus_comp):
+        focus_comp = f'comp{focus_comp}'
+    for i, x in enumerate(draw_comps):
+        if 'comp' not in str(x):
+            draw_comps[i] = f'comp{x}'
     gene_names = udf[draw_comps].sort_values(focus_comp, ascending=False).head(n_top_gene).index.tolist()
     if add_genes is not None:
         gene_names = list(set(gene_names) | set(add_genes))

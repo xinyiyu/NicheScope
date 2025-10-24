@@ -11,6 +11,13 @@ conda activate NicheScope
 python setup.py develop
 ```
 
+## Demo
+We provide a [demo notebook](https://github.com/xinyiyu/NicheScope/blob/main/demo/demo.ipynb) to illustrate the typical NicheScope workflow, including  
+1. Required input data structure  
+2. Running the `nichescope` function for niche detection  
+3. Understanding the output and interpreting detected niches with visualization 
+The demo uses [Xenium lymph node crop 1](https://drive.google.com/file/d/1oVS0nxrhf2TGYc3f-HI4dvubIa3uC4E_/view?usp=sharing) as an example dataset and performs B cell niche detection.
+
 ## Reproducibility
 We provide source codes for reproducing the NicheScope analysis in the main text:
 * [B cell MCN in LN (Xenium and OpenST)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/Xenium_OpenST_LN_B.ipynb)

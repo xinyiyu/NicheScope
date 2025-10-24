@@ -202,6 +202,8 @@ def select_candidate_genes(
 
     if adata2 is not None:
         assert N_target_df2 is not None, 'N_target_df2 not provided for combined covariance test!'
+        assert 'highly_variable_rank' in adata.var, f"'highly_variable_rank' not found in adata.var! Annotate highly variable genes in adata using scanpy.pp.highly_variable_genes with n_top_genes >= {n_hvg} first."
+        assert 'highly_variable_rank' in adata2.var, f"'highly_variable_rank' not found in adata2.var! Annotate highly variable genes in adata using scanpy.pp.highly_variable_genes with n_top_genes >= {n_hvg} first."
         use_gene_names = list(set(adata.var.loc[adata.var.highly_variable_rank<n_hvg,].index.tolist()) & set(adata2.var.loc[adata2.var.highly_variable_rank<n_hvg,].index.tolist()))
         if filter_genes is not None:
             use_gene_names = list(set(use_gene_names) & set(filter_genes))
@@ -214,6 +216,7 @@ def select_candidate_genes(
         keep_gene_idx = np.where(cov_X.sum(axis=1)!=0)[0]
         cov_X = cov_X[keep_gene_idx,:]
     else:
+        assert 'highly_variable_rank' in adata.var, f"'highly_variable_rank' not found in adata.var! Annotate highly variable genes in adata using scanpy.pp.highly_variable_genes with n_top_genes >= {n_hvg} first."
         use_gene_names = adata.var.loc[adata.var.highly_variable_rank<n_hvg,].index.tolist()
         if filter_genes is not None:
             use_gene_names = list(set(use_gene_names) & set(filter_genes))
@@ -377,6 +380,9 @@ def cca(
     logger_sub.debug(f'cca_X: {cca_X.shape}; cca_N: {cca_N.shape}')
 
     ## nonneg cca
+    if cca_comp > cca_N.shape[1]:
+        logger_sub.warning(f'cca_comp {cca_comp} > number of cell types {cca_N.shape[1]}. Set cca_comp to {cca_N.shape[1]}.')
+        cca_comp = cca_N.shape[1]
     pmd = CCA(cca_X, cca_N, K=cca_comp, penaltyx=px, penaltyz=pz, typex="standard", typez="standard", standardize=True, upos=True, vpos=True, trace=False)
 
     u = pmd.rx2('u')
@@ -824,7 +830,7 @@ def nichescope(
         Parameter in [0, 1] controlling sparsity of gene coefficients u. A smaller px leads to less nonzero values in gene coefficients.
 
     pz : int, default=0.5
-        Parameter in [0, 1] controlling sparsity of gene coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
+        Parameter in [0, 1] controlling sparsity of cell type coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
 
     sort_comp_by_corr : bool, default=False
         Whether to sort CCA components by the descending order of CCA correlations.
@@ -890,6 +896,7 @@ def nichescope(
     if len(cca_genes) == 0:
         logger.error(f'No candidate genes provided for CCA! NicheScope stopped.')
         return
+    logger.info(f'{len(cca_genes)} candidate genes: {cca_genes[0]}, {cca_genes[1]}, {cca_genes[2]}, ...')
     
     ### CCA
     udf, vdf, cors, ds = cca(adata, target_ct, N_target_df, cca_genes, **kwargs)
@@ -990,7 +997,7 @@ def nichescope_share(
         Parameter in [0, 1] controlling sparsity of gene coefficients u. A smaller px leads to less nonzero values in gene coefficients.
 
     pz : int, default=0.5
-        Parameter in [0, 1] controlling sparsity of gene coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
+        Parameter in [0, 1] controlling sparsity of cell type coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
 
     sort_comp_by_corr : bool, default=False
         Whether to sort CCA components by the descending order of CCA correlations.
@@ -1067,6 +1074,7 @@ def nichescope_share(
     if len(cca_genes) == 0:
         logger.error(f'No candidate genes provided for CCA! NicheScope stopped.')
         return
+    logger.info(f'{len(cca_genes)} candidate genes: {cca_genes[0]}, {cca_genes[1]}, {cca_genes[2]}, ...')
     
     ### CCA
     N_target_combine = pd.concat((N_target_df1_, N_target_df2_)).fillna(0)[cts_common]
@@ -1157,7 +1165,7 @@ def nichescope_specific(
         Parameter in [0, 1] controlling sparsity of gene coefficients u. A smaller px leads to less nonzero values in gene coefficients.
 
     pz : int, default=0.5
-        Parameter in [0, 1] controlling sparsity of gene coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
+        Parameter in [0, 1] controlling sparsity of cell type coefficients v. A smaller pz leads to less nonzero values in cell type coefficients.
 
     sort_comp_by_corr : bool, default=False
         Whether to sort CCA components by the descending order of CCA correlations.
