@@ -13,7 +13,9 @@ env/
 
 # Custom
 *.egg-info/
-data/
+data/*
+!data/maps/
+!data/maps/**
 results/
 src/test.ipynb
 src/utils_old.py
