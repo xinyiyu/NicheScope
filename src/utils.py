@@ -109,7 +109,7 @@ def qqplot(data, labels, n_quantiles=200, alpha=0.95, error_type='theoretical',
         ax.set_ylim([0, np.ceil(ymax*1.05)])#np.ceil(ymax*1.05)])
     else:
         ax.set_ylim(ylim)
-    ax.set_title(title, fontsize=title_font)
+    ax.set_title(title, fontsize=title_font, pad=10)
     if not showXticks:
         ax.set_xticks([])
     if not showYticks:
@@ -122,7 +122,7 @@ def qqplot(data, labels, n_quantiles=200, alpha=0.95, error_type='theoretical',
 
 
 ### niche cell type V radar plot
-def draw_v_radar(vdf, niches, niche1s=[], niche2s=[], v_thres=0.2, colors=None, alpha=0.6, width=0.2, offset=None, xticklabels=None, rlabel_angle=0, figsize=(5,5), dpi=300, xtick_fs=16, xlabel_pad=20, ylim=(0,1.05), yticks=[0.2,0.4,0.6,0.8,1.0], yticklabels=['0.2','0.4','0.6','0.8','1.0'], ytick_fs=12, leg_loc='center', leg_pos=(0.5,1.2), leg_ncol=1, leg_title=None, leg_pos_spec=None, leg_ncol_spec=1, leg_title_spec=None, leg_fs=16, leg_title_fs=16, leg_title_left=False, title=None, title_fs=20, title_y=1.15):
+def draw_v_radar(vdf, niches, niche1s=[], niche2s=[], v_thres=0.2, colors=None, alpha=0.6, width=0.2, offset=None, xticklabels=None, rorigin=0, rlabel_angle=0, figsize=(5,5), dpi=300, xtick_fs=16, xlabel_pad=20, ylim=(0,1.05), yticks=[0.2,0.4,0.6,0.8,1.0], yticklabels=['0.2','0.4','0.6','0.8','1.0'], ytick_fs=12, leg_loc='center', leg_pos=(0.5,1.2), leg_ncol=1, leg_title=None, leg_pos_spec=None, leg_ncol_spec=1, leg_title_spec=None, leg_fs=16, leg_title_fs=16, leg_title_left=False, title=None, title_fs=20, title_y=1.15):
 
     sns.set_theme(style='white')
     
@@ -175,7 +175,7 @@ def draw_v_radar(vdf, niches, niche1s=[], niche2s=[], v_thres=0.2, colors=None, 
     ax.set_yticks(yticks)
     ax.set_yticklabels(yticklabels, fontsize=ytick_fs)
     ax.set_rlabel_position(rlabel_angle)
-    ax.set_rorigin(0)
+    ax.set_rorigin(rorigin)
     ax.set_xticks(angles)
     ax.set_xticklabels(xticklabels, fontsize=xtick_fs, ha='center', va='center')
     ax.tick_params(axis='x', which='major', pad=xlabel_pad)
@@ -260,13 +260,14 @@ def draw_u_dotmap(udf, focus_comp, draw_comps, n_top_gene=10, add_genes=None, si
 
 
 ### spatial distribution of niche score across whole tissue section
-def draw_niche_score_spatial(adata, score_df, score_column, target_ct=None, draw_bg=True, bg_color='#F8F8F8', ms_bg=2, sort_score=False, cmap=mpl.colormaps['magma'], target_ec='#C0C0C0', ms=4, lw=0.4, window=None, window_lw=4, window_ls='--', window_lc='k', ylabel=None, ylabel_fs=12, title=None, title_fs=12, show_colorbar=False, cb_label=None, cb_tick_fs=20, figsize=(6, 6), dpi=300, no_ticks=True, aspect=['equal', 'auto'], invert_yaxis=True):
+def draw_niche_score_spatial(adata, score_df, score_column, target_ct=None, draw_bg=True, bg_color='#F8F8F8', ms_bg=2, sort_score=False, cmap=mpl.colormaps['magma'], sca_lims=None, target_ec='#C0C0C0', ms=4, lw=0.4, window=None, window_lw=4, window_ls='--', window_lc='k', ylabel=None, ylabel_fs=12, ylabel_pad=0, title=None, title_fs=12, title_color='k', title_y=1.0, show_colorbar=False, cb_label=None, cb_tick_fs=20, figsize=(6, 6), dpi=300, no_ticks=True, aspect=['equal', 'auto'], invert_yaxis=True, fig=None, ax=None):
     
     if sort_score:
         score_df = score_df.sort_values(score_column).reset_index(drop=True)
     lims = [adata.obs.x.min(), adata.obs.x.max(), adata.obs.y.min(), adata.obs.y.max()]
-    
-    fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
 
     ## background
     if draw_bg:
@@ -274,7 +275,8 @@ def draw_niche_score_spatial(adata, score_df, score_column, target_ct=None, draw
         ax.scatter(bg_df['x'], bg_df['y'], ms_bg, facecolor=bg_color, edgecolor=bg_color, lw=0)
 
     ## target cell type
-    sca_lims = {'vmin': 0, 'vmax': score_df[score_column].max()}
+    if sca_lims is None:
+        sca_lims = {'vmin': 0, 'vmax': score_df[score_column].max()}
     ax.scatter(score_df['x'], score_df['y'], ms, score_df[score_column], edgecolor=target_ec, lw=lw, cmap=cmap, **sca_lims)
     
     if show_colorbar:
@@ -303,9 +305,9 @@ def draw_niche_score_spatial(adata, score_df, score_column, target_ct=None, draw
         ax.set_yticks([])
     for s in ['top', 'bottom', 'right', 'left']:
         ax.spines[s].set_visible(False)
-    ax.set_ylabel(ylabel, fontsize=ylabel_fs)
-    ax.set_title(title, fontsize=title_fs)
-    plt.show()
+    ax.set_ylabel(ylabel, fontsize=ylabel_fs, labelpad=ylabel_pad)
+    ax.set_title(title, fontsize=title_fs, y=title_y, color=title_color)
+    # plt.show()
 
 
 ### niche score spatial distribution by kernel density estimation

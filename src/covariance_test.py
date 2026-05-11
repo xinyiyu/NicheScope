@@ -65,6 +65,67 @@ def cov_test(counts,infomat,mc_cores=1):
         'res_mtest': joint_pval
     }
     return res_covtest
+
+
+def cov_test_fixed(crop, target_ct, N_target_df, n_hvg=3000, exclude_genes=None):
+    use_gene_names = crop.var.loc[crop.var.highly_variable_rank<n_hvg,].index.tolist()
+    if exclude_genes is not None:
+        use_gene_names = list(set(use_gene_names) - set(exclude_genes))
+    cov_X = crop[crop.obs.cell_type==target_ct,use_gene_names].X.toarray().T
+    keep_gene_idx = np.where(cov_X.sum(axis=1)!=0)[0]
+    keep_gene_names = [use_gene_names[i] for i in keep_gene_idx]
+
+    cov_X = cov_X[keep_gene_idx,:]
+    cov_N = N_target_df.values
+    keep_cell_idx = np.where(cov_N.sum(axis=1)!=0)[0]
+    cov_X = cov_X[:,keep_cell_idx]
+    cov_N = cov_N[keep_cell_idx,:]
+    print(f'cov_X: {cov_X.shape}; cov_N: {cov_N.shape}')
+
+    cov_target_ = cov_test(cov_X, cov_N)
+    cov_target = pd.concat(
+            [pd.DataFrame({
+                'gene_id': np.array(keep_gene_names)[np.array(cov_target_['gene_ids'])], 
+                'vec_stat': cov_target_['stats'].flatten(),
+                'vec_pval': cov_target_['res_stest'].flatten()}),
+            cov_target_['res_mtest'].reset_index(drop=True)], axis=1
+        )
+    print(f'{cov_target.shape[0]} / {len(keep_gene_names)} genes have pvalue.')
+    print(f'No pvalue genes: {list(set(keep_gene_names)-set(cov_target.gene_id))}.')
+
+    return cov_target
+
+
+def cov_test_adaptive(crop, target_ct, sigma_grid, cutoff=0.05, n_hvg=3000):
+
+    from niche_detection import compute_N
+    
+    pval_dict = {}   
+    for sigma_ in sigma_grid:
+        # print(f'Adaptive sigma={sigma}')
+
+        N_target_df = compute_N(crop, target_ct, sigma=sigma_, cutoff=cutoff, self=True)
+        cov_target = cov_test_fixed(crop, target_ct, N_target_df, n_hvg=n_hvg)
+
+        for _, row in cov_target.iterrows():
+            gene = row['gene_id']
+            pval = row['vec_pval']   # raw p-value
+
+            if gene not in pval_dict:
+                pval_dict[gene] = []
+            pval_dict[gene].append(pval)
+
+    combined_results = []
+    for gene, pvals in pval_dict.items():
+        pvals = np.array(pvals)
+        pvals[pvals < 1e-300] = 1e-300
+        pvals[pvals > 1] = 1
+        p_comb = ACAT(pvals)
+        combined_results.append((gene, p_comb))
+    combined_df = pd.DataFrame(combined_results, columns=['gene_id', 'combinedPval'])
+    combined_df['adjustedPval'] = multipletests(combined_df['combinedPval'], method='fdr_by')[1]
+
+    return combined_df
     
     
 def ACAT(Pvals, Weights=None):
