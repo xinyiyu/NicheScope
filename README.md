@@ -22,6 +22,7 @@ The demo uses [Xenium lymph node crop 1](https://drive.google.com/file/d/1oVS0nx
 We provide source codes for reproducing the NicheScope analysis in the main text:
 * [B cell MCN in LN (Xenium and OpenST)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/Xenium_OpenST_LN_B.ipynb)
 * [T cell MCN in LN (Xenium)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/Xenium_LN_T.ipynb)
+* [Adjacent-section MCN consistency in NSCLC (CosMx)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/CosMx_NSCLC_consistency.ipynb)
 * [Tumor cell MCN in lung cancer (Xenium)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/Xenium_lung_tumor.ipynb)
 * [TLS and stromal cell MCN in lung cancer (Xenium)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/Xenium_lung_TLS_stromal.ipynb)
 * [Multi-condition niche discovery in primary and metastatic HNSCC (OpenST)](https://github.com/xinyiyu/NicheScope/blob/main/notebooks/OpenST_HNSCC.ipynb)
