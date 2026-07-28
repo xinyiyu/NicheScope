@@ -17,6 +17,7 @@ from scipy.interpolate import griddata, RBFInterpolator
 from sklearn import neighbors
 import gseapy
 import cmasher as cmr
+from scipy.spatial import cKDTree
 
 from assocplots.qqplot import *
 from operator import itemgetter
@@ -240,7 +241,7 @@ def draw_u_dotmap(udf, focus_comp, draw_comps, n_top_gene=10, add_genes=None, si
     if aspect_equal:
         g.set(aspect='equal')
     if title is not None:
-        g._axes[0][0].set_title(title, fontsize=fs, loc='center', pad=10)
+        g._axes[0][0].set_title(title, fontsize=fs, loc='center', fontweight='bold', pad=10)
     
     g.set_xticklabels(size = fs, rotation=0)
     g.set_yticklabels(size = fs, style='italic')
@@ -260,7 +261,18 @@ def draw_u_dotmap(udf, focus_comp, draw_comps, n_top_gene=10, add_genes=None, si
 
 
 ### spatial distribution of niche score across whole tissue section
-def draw_niche_score_spatial(adata, score_df, score_column, target_ct=None, draw_bg=True, bg_color='#F8F8F8', ms_bg=2, sort_score=False, cmap=mpl.colormaps['magma'], sca_lims=None, target_ec='#C0C0C0', ms=4, lw=0.4, window=None, window_lw=4, window_ls='--', window_lc='k', ylabel=None, ylabel_fs=12, ylabel_pad=0, title=None, title_fs=12, title_color='k', title_y=1.0, show_colorbar=False, cb_label=None, cb_tick_fs=20, figsize=(6, 6), dpi=300, no_ticks=True, aspect=['equal', 'auto'], invert_yaxis=True, fig=None, ax=None):
+def draw_niche_score_spatial(adata, score_df, score_column, target_ct=None, draw_bg=True, bg_color='#F8F8F8', ms_bg=2, cell_type_key='cell_type', sort_score=False, cmap=mpl.colormaps['magma'], sca_lims=None, target_ec='#C0C0C0', ms=4, lw=0.4, window=None, window_lw=4, window_ls='--', window_lc='k', ylabel=None, ylabel_fs=12, ylabel_pad=0, title=None, title_fs=12, title_color='k', title_y=1.0, show_colorbar=False, cb_label=None, cb_tick_fs=20, figsize=(6, 6), dpi=300, no_ticks=True, aspect=['equal', 'auto'], invert_yaxis=True, fig=None, ax=None):
+
+    coord_df = adata.obs[['cell_id', 'x', 'y']].copy()
+    score_plot_df = score_df[['cell_id', score_column]].copy()
+
+    # Ensure consistent cell_id dtype
+    coord_df['cell_id'] = coord_df['cell_id'].astype(str)
+    score_plot_df['cell_id'] = score_plot_df['cell_id'].astype(str)
+
+    # Retain only shared cells; coordinates are taken from adata.obs
+    score_df = coord_df.merge(score_plot_df, on='cell_id', how='inner')
+    print(score_df.shape)
     
     if sort_score:
         score_df = score_df.sort_values(score_column).reset_index(drop=True)
@@ -271,7 +283,7 @@ def draw_niche_score_spatial(adata, score_df, score_column, target_ct=None, draw
 
     ## background
     if draw_bg:
-        bg_df = adata[adata.obs['cell_type']!=target_ct].obs.copy()
+        bg_df = adata[adata.obs[cell_type_key]!=target_ct].obs.copy()
         ax.scatter(bg_df['x'], bg_df['y'], ms_bg, facecolor=bg_color, edgecolor=bg_color, lw=0)
 
     ## target cell type
@@ -444,28 +456,36 @@ def get_niche_cell_ids(meta, meta_key, adata, comp_col, niche_quantile=0.5, sigm
 
 
 ## get cell ids in tumors' neighborhood
-def get_tumor_neighbor_cell_ids(adata, target_ct = 'Tumor', max_chunk_target=10000, sigma = 40, cutoff = 0.05):
-    
-    loc_target = adata.obs.loc[adata.obs.cell_type==target_ct, ['x', 'y']].values
-    loc_all = adata.obs[['x','y']].values
+def get_tumor_neighbor_cell_ids(adata, target_ct='Tumor', max_chunk_target=10000, sigma=40, cutoff=0.05):
+    loc_target = adata.obs.loc[adata.obs.cell_type == target_ct, ['x', 'y']].values
+    loc_all = adata.obs[['x', 'y']].values
     print(f'{len(loc_all)} cells, {len(loc_target)} {target_ct}.')
-    if loc_target.shape[0]>max_chunk_target:
-        n_chunk = np.ceil(loc_target.shape[0]/max_chunk_target).astype(int)
-        loc_target_chunks = np.array_split(loc_target, n_chunk, axis=0)
-        K_target_chunks = []
-        for i, loc_target_chunk in enumerate(loc_target_chunks):
-            K_target_chunk = cdist(loc_target_chunk, loc_all)
-            K_target_chunk = np.exp(-K_target_chunk**2/sigma**2)
-            K_target_chunk[K_target_chunk < cutoff] = 0
-            K_target_chunks.append(K_target_chunk)
-        K_target = np.vstack(K_target_chunks)
+
+    if loc_target.shape[0] == 0:
+        print(f'K_target: (0, {len(loc_all)}).')
+        print(f'0 cells in the neighborhood of {target_ct}.\n')
+        return np.array([], dtype=adata.obs.cell_id.values.dtype)
+
+    # cutoff = exp(-d^2 / sigma^2) => d_max = sigma * sqrt(-ln(cutoff))
+    max_distance = sigma * np.sqrt(-np.log(cutoff))
+    tree_target = cKDTree(loc_target)
+    tree_all = cKDTree(loc_all)
+
+    sdm = tree_target.sparse_distance_matrix(
+        tree_all,
+        max_distance=max_distance,
+        output_type='coo_matrix'
+    )
+
+    if sdm.nnz > 0:
+        kernel_values = np.exp(-(sdm.data ** 2) / (sigma ** 2))
+        valid_cols = sdm.col[kernel_values >= cutoff]
+        keep_idx = np.unique(valid_cols)
     else:
-        K_target = cdist(loc_target, loc_all)
-        K_target = np.exp(-K_target**2/sigma**2)
-        K_target[K_target < cutoff] = 0
-    print(f'K_target: {K_target.shape}.')
-    keep_niche_cell_ids = np.where(K_target.sum(0)>0)[0]
-    keep_niche_cell_ids = adata.obs.cell_id.values[keep_niche_cell_ids]
+        keep_idx = np.array([], dtype=np.int64)
+
+    print(f'K_target: ({len(loc_target)}, {len(loc_all)}).')
+    keep_niche_cell_ids = adata.obs.cell_id.values[keep_idx]
     print(f'{len(keep_niche_cell_ids)} cells in the neighborhood of {target_ct}.\n')
     return keep_niche_cell_ids
 
@@ -474,7 +494,7 @@ def get_tumor_neighbor_cell_ids(adata, target_ct = 'Tumor', max_chunk_target=100
 def draw_niche_cells(adata, keep_niche_cell_ids, cmap_ct_dict, ct_name_map,
                      ms_bg = 4, color_bg = '#F0F0F0', lw_bg = 0, 
                      ms = 6, ecolor = '#C0C0C0', lw = 0.4,
-                     title=None, title_fs=30, figsize=(7,10), dpi=300):
+                     title=None, title_fs=30, figsize=(7,10), dpi=300, invert_yaxis=False):
     
     fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
     # background
@@ -489,6 +509,8 @@ def draw_niche_cells(adata, keep_niche_cell_ids, cmap_ct_dict, ct_name_map,
         ax.scatter(df['x'], df['y'], ms_bg, facecolors=color, edgecolor=color, lw=0, label=ct_name_map[ct])
     ax.set_xticks([])
     ax.set_yticks([])
+    if invert_yaxis:
+        ax.invert_yaxis()
     ax.set_title(title, fontsize=title_fs, pad=10)
     for s in ['top', 'bottom', 'right', 'left']:
         ax.spines[s].set_visible(False)

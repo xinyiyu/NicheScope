@@ -329,7 +329,7 @@ def select_candidate_genes(
     else:
         if 'highly_variable_rank' not in adata.var:
             sc.pp.highly_variable_genes(adata, layer='counts', n_top_genes=n_hvg, flavor='seurat_v3')
-            logger_sub.debug(f'Computed {n_top_genes} HVGs.')
+            logger_sub.debug(f'Computed {n_hvg} HVGs.')
         use_gene_names = adata.var.loc[adata.var.highly_variable_rank<n_hvg,].index.tolist()
         if exclude_genes is not None:
             use_gene_names = list(set(use_gene_names) - set(exclude_genes))
@@ -515,9 +515,9 @@ def cca(
         logger_sub.debug(f'Permuted cca_X: {cca_X.shape}')
 
     ## nonneg cca
-    if cca_comp > cca_N.shape[1]:
-        logger_sub.warning(f'cca_comp {cca_comp} > number of cell types {cca_N.shape[1]}. Set cca_comp to {cca_N.shape[1]}.')
-        cca_comp = cca_N.shape[1]
+    if cca_comp > cca_N.shape[1] or cca_comp > cca_X.shape[1]:
+        logger_sub.warning(f'Set cca_comp to {min(cca_N.shape[1], cca_X.shape[1])}.')
+        cca_comp = min(cca_N.shape[1], cca_X.shape[1])
     r_cca_X = numpy2ri.py2rpy(cca_X)
     r_cca_N = numpy2ri.py2rpy(cca_N)
     pmd = CCA(r_cca_X, r_cca_N, K=cca_comp, penaltyx=px, penaltyz=pz, typex="standard", typez="standard", standardize=True, upos=upos, vpos=vpos, trace=False)
