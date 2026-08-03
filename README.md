@@ -3,6 +3,19 @@ NicheScope is a computational framework for identifying and characterizing cell 
 
 ![image](https://github.com/xinyiyu/NicheScope/blob/main/nichescope_demo.jpg)
 
+## System requirements
+
+NicheScope is implemented in Python and has been tested on Python 3.9 and 3.10 environments.
+
+Operating systems:
+- Linux (tested)
+- macOS (compatible)
+
+The required Python dependencies and package versions are provided in `environment.yml`.
+
+No specialized hardware (e.g., GPU) is required. A standard desktop computer is sufficient for running NicheScope on typical spatial transcriptomics datasets.
+
+
 ## Installation
 Git clone the repository and install the package:
 ```
@@ -10,13 +23,23 @@ conda env create -f environment.yml
 conda activate NicheScope
 python setup.py develop
 ```
+The installation typically takes less than 10 minutes on a standard desktop computer.
 
 ## Demo
 We provide a [demo notebook](https://github.com/xinyiyu/NicheScope/blob/main/demo/demo.ipynb) to illustrate the typical NicheScope workflow, including  
 1. Required input data structure  
 2. Running the `nichescope` function for niche detection  
 3. Understanding the output and interpreting detected niches with visualization 
-The demo uses [Xenium lymph node crop 1](https://drive.google.com/file/d/1oVS0nxrhf2TGYc3f-HI4dvubIa3uC4E_/view?usp=sharing) as an example dataset and performs B cell niche detection.
+The demo uses [Xenium lymph node crop 1](https://drive.google.com/file/d/1oVS0nxrhf2TGYc3f-HI4dvubIa3uC4E_/view?usp=sharing) as an example dataset and performs B-cell-associated MCN detection.
+
+The expected output includes:
+- inferred multicellular niches (MCNs)
+- niche scores for target cells
+- niche-associated genes
+- niche-associated cell types
+- spatial visualization of detected niches
+
+The demo typically completes within several minutes on a standard desktop computer.
 
 ## Reproducibility
 We provide source codes for reproducing the NicheScope analysis in the main text:
